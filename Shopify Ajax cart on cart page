@@ -1,0 +1,262 @@
+function formatMoney(cents, format) {
+  if (typeof cents == "string") {
+    cents = cents.replace(".", "");
+  }
+  var value = "";
+  var placeholderRegex = /\{\{\s*(\w+)\s*\}\}/;
+  var formatString = format || this.money_format;
+
+  function defaultOption(opt, def) {
+    return typeof opt == "undefined" ? def : opt;
+  }
+
+  function formatWithDelimiters(number, precision, thousands, decimal) {
+    precision = defaultOption(precision, 2);
+    thousands = defaultOption(thousands, ",");
+    decimal = defaultOption(decimal, ".");
+
+    if (isNaN(number) || number == null) {
+      return 0;
+    }
+
+    number = (number / 100.0).toFixed(precision);
+
+    var parts = number.split("."),
+      dollars = parts[0].replace(/(\d)(?=(\d\d\d)+(?!\d))/g, "$1" + thousands),
+      cents = parts[1] ? decimal + parts[1] : "";
+
+    return dollars + cents;
+  }
+
+  switch (formatString.match(placeholderRegex)[1]) {
+    case "amount":
+      value = formatWithDelimiters(cents, 2);
+      break;
+    case "amount_no_decimals":
+      value = formatWithDelimiters(cents, 0);
+      break;
+    case "amount_with_comma_separator":
+      value = formatWithDelimiters(cents, 2, ".", ",");
+      break;
+    case "amount_no_decimals_with_comma_separator":
+      value = formatWithDelimiters(cents, 0, ".", ",");
+      break;
+  }
+
+  return formatString.replace(placeholderRegex, value);
+}
+
+function debounce(func, wait, immediate) {
+  var timeout;
+  return function () {
+    var context = this,
+      args = arguments;
+    var later = function () {
+      timeout = null;
+      if (!immediate) func.apply(context, args);
+    };
+    var callNow = immediate && !timeout;
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+    if (callNow) func.apply(context, args);
+  };
+}
+
+document
+  .querySelectorAll(".cart-quantity-selector button")
+  .forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = button.parentElement.querySelector("input");
+      const value = Number(input.value);
+      const isPlus = button.classList.contains("plus");
+      const key = button.closest(".cart-item").getAttribute("data-key");
+
+      if (isPlus) {
+        const newValue = value + 1;
+        input.value = newValue;
+        changeItemQuantity(key, newValue);
+      } else if (value > 1) {
+        const newValue = value - 1;
+        input.value = newValue;
+        changeItemQuantity(key, newValue);
+      }
+    });
+  });
+
+document.querySelectorAll(".remove-item").forEach((remove) => {
+  remove.addEventListener("click", (e) => {
+    e.preventDefault();
+
+    const item = remove.closest(".cart-item");
+    const key = item.getAttribute("data-key");
+
+    axios
+      .post("/cart/change.js", {
+        id: key,
+        quantity: 0,
+      })
+      .then((res) => {
+        if (res.data.items.length === 0) {
+          document.querySelector("#cart_form").remove();
+          document.querySelector(".carticon").textContent = res.data.item_count;
+
+          const html = document.createElement("div");
+          html.innerHTML = `
+          <h1>Cart</h1>
+          <div class="cart-empty">
+          <p>Your cart is empty.</p>
+          <a class="button" href="/">Keep shopping</a>
+        </div>
+          `;
+
+          document.querySelector(".cart .width").appendChild(html);
+        } else {
+
+    
+          const format = document
+            .querySelector("[data-money-format]")
+            .getAttribute("data-money-format");
+
+          const totalDiscount = formatMoney(res.data.total_discount, format);
+          const totalPrice = formatMoney(res.data.total_price, format);
+          document.querySelector("#total-discount").textContent = totalDiscount;
+          document.querySelector("#total-price").textContent = totalPrice;
+          document.querySelector(".carticon").textContent = res.data.item_count;
+          item.remove();
+        }
+      });
+  });
+});
+
+function changeItemQuantity(key, quantity) {
+  axios
+    .post("/cart/change.js", {
+      id: key,
+      quantity,
+    })
+    .then((res) => {
+       document.querySelector(".carticon").textContent = res.data.item_count;
+      const format = document
+        .querySelector("[data-money-format]")
+        .getAttribute("data-money-format");
+
+      const totalDiscount = formatMoney(res.data.total_discount, format);
+      const totalPrice = formatMoney(res.data.total_price, format);
+      const item = res.data.items.find((item) => item.key === key);
+      const itemPrice = formatMoney(item.final_line_price, format);
+
+      document.querySelector("#total-discount").textContent = totalDiscount;
+      document.querySelector("#total-price").textContent = totalPrice;
+      document.querySelector(
+        `[data-key="${key}"] .line-item-price`
+      ).textContent = itemPrice;
+    });
+}
+
+
+
+<div class="cart" data-money-format="{{ shop.money_format }}">
+  <div class="width">
+    {% form 'cart', cart %}
+      <h1>Cart</h1>
+
+      {% if cart.empty? %}
+        <div class="cart-empty">
+          <p>Your cart is empty.</p>
+          <a class="button" href="/">Keep shopping</a>
+        </div>
+
+      {% else %}
+        {% for item in cart.items %}
+           <div class="cart-item" data-key="{{ item.key }}">
+  <div class="cart-item-image">
+    <a href="{{ item.url }}">
+      <img src="{{ item.image | image_url: width: 400 }}">
+    </a>
+  </div>
+
+  <div class="cart-item-product">
+    <h3>
+      <a href="{{ item.url }}">{{ item.product.title }}</a>
+    </h3>
+
+    <ul>
+      {% for option in item.options_with_values %}
+        {% if option.value != 'Default Title' %}
+          <li>{{ option.name }}: {{ option.value }}</li>
+        {% endif %}
+      {% endfor %}
+
+      {% for prop in item.properties %}
+        {% assign firstChar = prop[0] | slice: 0 %}
+
+        {% unless prop[1] == blank or firstChar == '_' %}
+          <li>{{ prop[0] }}: {{ prop[1] }}</li>
+        {% endunless %}
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="cart-item-quantity">
+    <div class="cart-quantity-selector quantity-selector">
+      <button type="button">{% render 'minus.svg' %}</button>
+      <input type="text" readonly value="{{ item.quantity }}">
+      <button class="plus" type="button">{% render 'plus.svg' %}</button>
+    </div>
+  </div>
+
+  <div class="cart-item-total">
+    <span class="line-item-price">{{ item.final_line_price | money }}</span>
+  </div>
+
+  <div class="cart-item-remove">
+    <a class="remove-item" href="{{ item.url_to_remove }}">
+      {% render 'x.svg' %}
+    </a>
+  </div>
+</div>
+        {% endfor %}
+
+        <div class="cart-notes">
+          <textarea name="note" placeholder="Add special instructions">{{ cart.note }}</textarea>
+        </div>
+
+        <div class="cart-totals">
+          <p>
+            Discounts: <strong id="total-discount">{{ cart.total_discounts | money }}</strong>
+          </p>
+          <p>
+            Total: <strong id="total-price">{{ cart.total_price | money }}</strong>
+          </p>
+        </div>
+
+        <div class="cart-buttons">
+          <button type="submit" name="checkout" class="button full">Checkout</button>
+        </div>
+      {% endif %}
+    {% endform %}
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+{{ 'cart.js' | asset_url | script_tag }}
+
+{% schema %}
+{
+  "name": "Cart",
+  "presets": [
+    {
+      "name": "Cart"
+    }
+  ]
+}
+{% endschema %}
+
+
+
+
+
+
+
+
+
